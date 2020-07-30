@@ -3,6 +3,7 @@ import numpy as np
 from tqdm.auto import tqdm
 from collections import Counter
 from sklearn.preprocessing import MultiLabelBinarizer
+from efficient_apriori import apriori as apr
 
 class CrowdTruth:
     def __init__(self, df=None, turk_json=None, turk_labels_j=None):
@@ -14,17 +15,9 @@ class CrowdTruth:
         if turk_json:
             self.df, self.clarity_df = self.load_turk_json(turk_json, turk_labels_j)
 
-        # responses = []
-        # hitids = list(self.df['HITId'].unique())
-        # response_grouper = self.df.groupby('HITId')
-        #
-        # for hitid in tqdm(hitids, desc='indexing responses', leave=False):
-        #     hit_df = response_grouper.get_group(hitid)
-        #     responses.append(hit_df.iloc[0]['survey_response'])
-        #
-        # self.responses = pd.Series(responses, index=hitids, name='survey_responses')
         self.responses = pd.Series({t['hit_id']:t['response']['open_response'] for t in turk_json})
 
+    ##### LOADERS ######
     def load_turk_json(self, turk_j, turk_labels_j):
         turk_rows = []
         labels = []
@@ -79,6 +72,7 @@ class CrowdTruth:
 
         return reformat_df, clarity_df
 
+    #### ITEMS #####
     def get_item_relation_scores(self):
         return self.clarity_df.div(self.clarity_df.sum(axis=1),axis=0)
 
@@ -86,6 +80,7 @@ class CrowdTruth:
         item_rel_df = self.get_item_relation_scores()
         return item_rel_df.max(axis=1).loc[item_ind]
 
+    #### RELATIONS / THEMES ####
     def relation_clarity_scores(self):
         item_rel_df = self.get_item_relation_scores()
         rel_clarity_df = pd.DataFrame({'rel_clarity (max)': item_rel_df.max(axis=0), \
@@ -94,6 +89,40 @@ class CrowdTruth:
                                       'num_annotations':self.clarity_df.sum(axis=0)})
         return rel_clarity_df.sort_values(by='num_annotations', ascending=False)
 
+    def get_corroboration_scores(self):
+        labels = {}
+
+        for label in self.clarity_df.columns:
+            applied_labels =  self.clarity_df[label]
+            num_applied = applied_labels.sum()
+            applied_with_corroboration = applied_labels[applied_labels > 1].sum()
+            labels[label] = applied_with_corroboration / num_applied
+
+        labels_df = pd.Series(labels).sort_values(ascending=False)
+
+        return labels_df
+
+    def get_theme_association_rules(self, min_support=.05, min_confidence=.4, \
+                                    rule_complexity=(1,1)):
+        transactions = [list(row[row > 0].index) for ind, row in self.clarity_df.iterrows()]
+
+        itemsets, rules = apr(transactions, min_support=min_support, min_confidence=min_confidence)
+
+        if rule_complexity:
+            rules = filter(lambda rule: len(rule.lhs) == rule_complexity[0]\
+                                and len(rule.rhs) == rule_complexity[1], rules)
+
+        results = []
+
+        for rule in rules:
+            result = {'X':rule.lhs, 'Y':rule.rhs, 'confidence': rule.confidence}
+            results.append(result)
+
+        return pd.DataFrame(results)
+
+
+
+    #### WORKERS #####
     def get_all_worker_ids(self):
         return self.df['WorkerId'].unique()
 
@@ -109,9 +138,6 @@ class CrowdTruth:
             return w_df.drop(columns=['WorkTimeInSeconds'])
         else:
             return w_df
-
-    def avg_annotations_per_item(self,df):
-        return df[df.sum(axis=1) > 1].sum(axis=1).mean()
 
     def asym_worker_agreement(self, w_df1, w_df2, minimum_common=1):
         relations_in_common = 0
@@ -151,6 +177,19 @@ class CrowdTruth:
 
         return cosine_sim(w_vec, all_minus_w_vec)
 
+    def get_worker_item_sims(self, w_df):
+        w_df = w_df[w_df.sum(axis=1) > 0]
+
+        item_ids = list(w_df.index)
+
+        worker_item_sims = []
+
+        for item_id in item_ids:
+            sim = self.worker_item_sim(w_df, item_id)
+            worker_item_sims.append(sim)
+
+        return pd.Series(worker_item_sims, index=item_ids)
+
     def worker_item_disagreement(self, w_df, item_ind):
         item_clarity = self.get_item_clarity(item_ind)
         return item_clarity - self.worker_item_sim(w_df, item_ind)
@@ -161,6 +200,10 @@ class CrowdTruth:
         disagr_scores = pd.Series([self.worker_item_disagreement(w_df, ind) for ind in w_inds])
 
         return disagr_scores.mean()
+
+    #### MISCELLANEOUS ####
+    def avg_annotations_per_item(self,df):
+            return df[df.sum(axis=1) > 1].sum(axis=1).mean()
 
     def items_in_common(self, w_df1, w_df2):
         return len(set(w_df1[w_df1.sum(axis=1) > 0].index).intersection(set(w_df2[w_df2.sum(axis=1) > 0].index)))
