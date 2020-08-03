@@ -12,10 +12,19 @@ class CrowdTruth:
                 df = pd.read_csv(df)
             self.df, self.clarity_df = self.load_from_df(df)
 
+            responses = []
+            hitids = list(self.df['HITId'].unique())
+            response_grouper = self.df.groupby('HITId')
+
+            for hitid in tqdm(hitids, desc='indexing responses', leave=False):
+                hit_df = response_grouper.get_group(hitid)
+                responses.append(hit_df.iloc[0]['survey_response'])
+
+            self.responses = pd.Series(responses, index=hitids, name='survey_responses')
+    
         if turk_json:
             self.df, self.clarity_df = self.load_turk_json(turk_json, turk_labels_j)
-
-        self.responses = pd.Series({t['hit_id']:t['response']['open_response'] for t in turk_json})
+            self.responses = pd.Series({t['hit_id']:t['response']['open_response'] for t in turk_json})
 
     ##### LOADERS ######
     def load_turk_json(self, turk_j, turk_labels_j):
@@ -41,11 +50,18 @@ class CrowdTruth:
         # vectorize labels
         mlb = MultiLabelBinarizer()
         binarized_labels = mlb.fit_transform(labels)
+        self.relations = mlb.classes_
         labels_df = pd.DataFrame(binarized_labels, columns=mlb.classes_, index=turk_df.index)
 
         turk_df = pd.merge(turk_df, labels_df, left_index=True, right_index=True)
-        clarity_df = turk_df.groupby('HITId').agg({label:sum for label in mlb.classes_})
+        # clarity_df = turk_df.groupby('HITId').agg({label:sum for label in mlb.classes_})
+        clarity_df = self.compute_clarity_df(turk_df)
+
         return turk_df, clarity_df
+
+    def compute_clarity_df(self,df):
+        clarity_df = df.groupby('HITId').agg({label:sum for label in self.relations})
+        return clarity_df
 
     def load_from_df(self, df):
         # get all labels
@@ -80,6 +96,13 @@ class CrowdTruth:
         item_rel_df = self.get_item_relation_scores()
         return item_rel_df.max(axis=1).loc[item_ind]
 
+    def item_corroboration_score(self, label_vector, corroboration_threshold=1):
+        return label_vector[label_vector > corroboration_threshold].sum() / label_vector[label_vector > 0].sum()
+
+    def get_item_corroboration_scores(self, corroboration_threshold=1):
+        return self.clarity_df.apply(self.item_corroboration_score, \
+                                    corroboration_threshold=corroboration_threshold, axis=1)
+
     #### RELATIONS / THEMES ####
     def relation_clarity_scores(self):
         item_rel_df = self.get_item_relation_scores()
@@ -89,7 +112,7 @@ class CrowdTruth:
                                       'num_annotations':self.clarity_df.sum(axis=0)})
         return rel_clarity_df.sort_values(by='num_annotations', ascending=False)
 
-    def get_corroboration_scores(self):
+    def get_theme_corroboration_scores(self):
         labels = {}
 
         for label in self.clarity_df.columns:
@@ -124,7 +147,7 @@ class CrowdTruth:
 
     #### WORKERS #####
     def get_all_worker_ids(self):
-        return self.df['WorkerId'].unique()
+        return list(self.df['WorkerId'].unique())
 
     def get_worker_df(self, worker_id, include_worktime=False):
         w_df = pd.DataFrame(np.zeros(self.clarity_df.shape), index=self.clarity_df.index, columns=self.clarity_df.columns)
