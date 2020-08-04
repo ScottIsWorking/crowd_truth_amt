@@ -50,7 +50,7 @@ class CrowdTruth:
         # vectorize labels
         mlb = MultiLabelBinarizer()
         binarized_labels = mlb.fit_transform(labels)
-        self.relations = mlb.classes_
+        self.relations = list(mlb.classes_)
         labels_df = pd.DataFrame(binarized_labels, columns=mlb.classes_, index=turk_df.index)
 
         turk_df = pd.merge(turk_df, labels_df, left_index=True, right_index=True)
@@ -71,7 +71,7 @@ class CrowdTruth:
             answers = answer.split('|')
             labels_counter.update(answers)
 
-        self.relations = labels_counter.keys()
+        self.relations = list(labels_counter.keys())
         # reformat
         reformat_rows = []
         for ind, row in df.iterrows():
