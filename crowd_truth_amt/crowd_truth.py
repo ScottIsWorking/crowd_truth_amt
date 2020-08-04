@@ -21,7 +21,7 @@ class CrowdTruth:
                 responses.append(hit_df.iloc[0]['survey_response'])
 
             self.responses = pd.Series(responses, index=hitids, name='survey_responses')
-    
+
         if turk_json:
             self.df, self.clarity_df = self.load_turk_json(turk_json, turk_labels_j)
             self.responses = pd.Series({t['hit_id']:t['response']['open_response'] for t in turk_json})
@@ -71,6 +71,7 @@ class CrowdTruth:
             answers = answer.split('|')
             labels_counter.update(answers)
 
+        self.relations = labels_counter.keys()
         # reformat
         reformat_rows = []
         for ind, row in df.iterrows():
