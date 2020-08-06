@@ -56,7 +56,7 @@ class CrowdTruth:
         turk_df = pd.merge(turk_df, labels_df, left_index=True, right_index=True)
         # clarity_df = turk_df.groupby('HITId').agg({label:sum for label in mlb.classes_})
         clarity_df = self.compute_clarity_df(turk_df)
-
+        self.responses = self.responses.astype('str')
         return turk_df, clarity_df
 
     def compute_clarity_df(self,df):
