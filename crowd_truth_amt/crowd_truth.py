@@ -7,7 +7,7 @@ from efficient_apriori import apriori as apr
 
 class CrowdTruth:
     def __init__(self, df=None, turk_json=None, turk_labels_j=None):
-        if df:
+        if df is not None:
             if type(df) == str:
                 df = pd.read_csv(df)
             self.df, self.clarity_df = self.load_from_df(df)
