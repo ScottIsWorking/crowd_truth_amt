@@ -113,13 +113,13 @@ class CrowdTruth:
                                       'num_annotations':self.clarity_df.sum(axis=0)})
         return rel_clarity_df.sort_values(by='num_annotations', ascending=False)
 
-    def get_theme_corroboration_scores(self):
+    def get_theme_corroboration_scores(self, corroboration_threshold=1):
         labels = {}
 
         for label in self.clarity_df.columns:
             applied_labels =  self.clarity_df[label]
             num_applied = applied_labels.sum()
-            applied_with_corroboration = applied_labels[applied_labels > 1].sum()
+            applied_with_corroboration = applied_labels[applied_labels > corroboration_threshold].sum()
             labels[label] = applied_with_corroboration / num_applied
 
         labels_df = pd.Series(labels).sort_values(ascending=False)
